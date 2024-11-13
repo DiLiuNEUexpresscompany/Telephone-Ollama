@@ -1,0 +1,4 @@
+# .gitignore
+.env
+.webui_secret_key
+logs
