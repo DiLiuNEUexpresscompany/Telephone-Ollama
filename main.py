@@ -11,16 +11,16 @@ from dotenv import load_dotenv
 from utils.rate_limiter import RateLimiter
 from utils.logger import setup_logger
 
-# 加载环境变量
+# Load environment variables
 load_dotenv()
 
-# 设置日志
+# Set up logging
 logger = setup_logger()
 
-# 初始化 FastAPI 应用
+# Initialize FastAPI application
 app = FastAPI(title="Twilio Voice Chatbot")
 
-# Twilio 客户端配置
+# Twilio client configuration
 try:
     twilio_client = Client(
         os.getenv('TWILIO_ACCOUNT_SID'),
@@ -31,12 +31,12 @@ except Exception as e:
     logger.error(f"Twilio initialization error: {e}")
     raise
 
-# 初始化速率限制器
+# Initialize rate limiter
 voice_limiter = RateLimiter(int(os.getenv('MAX_CALLS_PER_DAY', 100)))
 sms_limiter = RateLimiter(int(os.getenv('MAX_SMS_PER_DAY', 100)))
 
 async def process_with_ollama(user_input: str) -> str:
-    """使用Ollama处理用户输入"""
+    """Process user input with Ollama"""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
@@ -46,25 +46,25 @@ async def process_with_ollama(user_input: str) -> str:
             )
             if response.status_code == 200:
                 result = response.json()
-                return result.get('response', '抱歉，我现在无法理解您的输入。')
+                return result.get('response', 'Sorry, I’m unable to understand your input right now.')
             else:
                 logger.error(f"Ollama API error: {response.status_code}")
-                return "系统暂时无法处理您的请求，请稍后再试。"
+                return "The system is temporarily unable to process your request, please try again later."
         except Exception as e:
             logger.error(f"Error processing with Ollama: {e}")
-            return "抱歉，处理您的请求时出现错误。"
+            return "Sorry, there was an error processing your request."
 
 @app.post("/voice")
 async def handle_incoming_call(request: Request):
-    """处理入站电话"""
+    """Handle incoming call"""
     try:
         form_data = await request.form()
         from_number = form_data.get('From')
 
-        # 检查速率限制
+        # Check rate limit
         if not voice_limiter.can_proceed(from_number):
             response = VoiceResponse()
-            response.say("对不起，您今天的通话次数已达上限。", language="zh-CN")
+            response.say("Sorry, you have reached the call limit for today.", language="en")
             response.hangup()
             return str(response)
 
@@ -73,13 +73,13 @@ async def handle_incoming_call(request: Request):
             input='speech',
             action='/process-speech',
             timeout=3,
-            language='zh-CN',
-            hints=['你好', '帮助', '再见']
+            language='en',
+            hints=['Hello', 'Help', 'Goodbye']
         )
-        gather.say('欢迎使用AI助手，请问有什么可以帮您？', language="zh-CN")
+        gather.say("Welcome to the AI Assistant. How can I help you?", language="en")
         response.append(gather)
 
-        # 如果用户没有说话，重定向到开始
+        # Redirect to start if the user doesn't speak
         response.redirect('/voice')
         
         return str(response)
@@ -89,31 +89,31 @@ async def handle_incoming_call(request: Request):
 
 @app.post("/process-speech")
 async def process_speech(request: Request):
-    """处理语音输入"""
+    """Process speech input"""
     try:
         form_data = await request.form()
         user_input = form_data.get('SpeechResult', '')
         
         if not user_input:
             response = VoiceResponse()
-            response.say("抱歉，我没有听清楚，请再说一遍。", language="zh-CN")
+            response.say("Sorry, I didn't hear that. Please say it again.", language="en")
             response.redirect('/voice')
             return str(response)
 
-        # 处理用户输入
+        # Process user input
         llm_response = await process_with_ollama(user_input)
         
         response = VoiceResponse()
-        response.say(llm_response, language="zh-CN")
+        response.say(llm_response, language="en")
 
-        # 继续对话
+        # Continue conversation
         gather = Gather(
             input='speech',
             action='/process-speech',
             timeout=3,
-            language='zh-CN'
+            language='en'
         )
-        gather.say('您还有其他问题吗？', language="zh-CN")
+        gather.say("Do you have any other questions?", language="en")
         response.append(gather)
         
         return str(response)
@@ -123,20 +123,20 @@ async def process_speech(request: Request):
 
 @app.post("/sms")
 async def handle_sms(request: Request):
-    """处理短信"""
+    """Handle SMS"""
     try:
         form_data = await request.form()
         message_body = form_data.get('Body', '')
         from_number = form_data.get('From', '')
 
-        # 检查速率限制
+        # Check rate limit
         if not sms_limiter.can_proceed(from_number):
-            return "对不起，您今天的短信次数已达上限。"
+            return "Sorry, you have reached the SMS limit for today."
 
-        # 处理消息
+        # Process message
         response_text = await process_with_ollama(message_body)
         
-        # 发送回复
+        # Send reply
         twilio_client.messages.create(
             body=response_text,
             to=from_number,
@@ -148,12 +148,12 @@ async def handle_sms(request: Request):
         logger.error(f"Error in SMS handler: {e}")
         raise HTTPException(status_code=500, detail="SMS processing error")
 
-# 启动事件
+# Startup event
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Twilio Voice Chatbot")
 
-# 关闭事件
+# Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down Twilio Voice Chatbot")
